@@ -9,7 +9,7 @@ warnings.filterwarnings("ignore", message="`data_source` argument is not used", 
 
 class BucketSampler(Sampler[int]):
     def __init__(self, sentences, batch_size: int) -> None:
-        super().__init__(sentences)
+        super().__init__()
         self.sentences = sentences
         self.batch_size = batch_size
         self.length = None
