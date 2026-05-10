@@ -6,8 +6,17 @@ More information will be added later
 
 ### Python version
 
-This project does not require certain package versions. However, it was only tested with python 3.12.12. We also suggest
-using torch version with cuda available for better experience.
+The easiest way to set up environment is to run 
+
+```bash
+conda env create -f environment.yml
+```
+which creates `mo-env` in conda. However, after that you have to additionally install `torch`. We recommend using version 2.11.0 with CUDA
+which can be installed with this command:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu126
+```
 
 ### Data
 
