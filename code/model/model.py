@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-from model.layers.encoder import RoBERTaEncoder, RuBERTEncoder
+from model.layers.encoder import LSTMEncoder, RoBERTaEncoder, RuBERTEncoder
 from model.layers.decoder import Decoder
 
 
@@ -25,7 +25,9 @@ class Model(nn.Module):
         self.vocab = vocab
         self.encoder_type = encoder_type.lower()
 
-        if self.encoder_type == 'roberta':
+        if self.encoder_type == 'lstm':
+            self.encoder = LSTMEncoder(self.conf, self.vocab)
+        elif self.encoder_type == 'roberta':
             self.encoder = RoBERTaEncoder(self.conf, self.vocab)
         elif self.encoder_type == 'rubert':
             self.encoder = RuBERTEncoder(self.conf, self.vocab)
@@ -35,7 +37,7 @@ class Model(nn.Module):
         self.decoder = Decoder(self.conf, self.vocab)
 
 
-    def forward(self, words_batch, labels_batch=None):
+    def forward(self, words_batch, chars_batch, labels_batch=None):
         """Uses Encoder and Decoder to perform one pass on a sinle batch.
 
         Args:
@@ -52,9 +54,8 @@ class Model(nn.Module):
 
         # shape (max_sentence_length * batch_size, grammeme_LSTM_hidden)
         # encoder_output is a single tensor
-        encoder_output = self.encoder(words_batch=words_batch)
-        decoder_hidden = encoder_output
-        decoder_cell = torch.zeros_like(decoder_hidden)
+        encoder_output = self.encoder(words_batch=words_batch, chars_batch=chars_batch)
+        decoder_hidden, decoder_cell = encoder_output
 
         predictions, probabilities = self.decoder(decoder_hidden, decoder_cell, labels_batch)
         return predictions, probabilities
