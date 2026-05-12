@@ -32,11 +32,11 @@ def parse_arguments():
     with open(args.config, 'r') as json_file:
         config = json.load(json_file)
 
-    config['encoder_type'] = config['encoder_type'].lower()
-
     if config['loss'] not in ['xe', 'oaxe']:
         raise ValueError(f'Unknown loss: {config["loss"]}')
 
+    config['word_LSTM_directions'] = 1 + int(config['word_LSTM_bidirectional'])
+    config['char_LSTM_directions'] = 1 + int(config['char_LSTM_bidirectional'])
     config['teacher_forcing'] = False if config['loss'] == 'oaxe' else True
     # why???
 
@@ -104,7 +104,7 @@ def multiple(grid=None):
         model = Model(conf, vocab, encoder_type=conf['encoder_type']).to(conf['device'])
         freeze_params(model, verbose=0)
         trainer = Trainer(conf, model, datasets['train'], datasets['valid'],
-                          run_number=seed, subset_size=0, save_model=True).to(conf['device'])
+                          run_number=seed, subset_size=6, save_model=True).to(conf['device'])
         trainer.train()
 
         return trainer.best_accuracy, trainer.best_loss
@@ -128,7 +128,7 @@ def multiple(grid=None):
     per_language_runs = math.prod(grid_dims)
     print(f'{per_language_runs} variant(s) for each language and order')
 
-    search_results = [] if per_language_runs > 1 else None
+    search_results = []
 
     for i, params in enumerate(iterate_param_grid(grid)):
         conf = parse_arguments()
@@ -151,7 +151,8 @@ def multiple(grid=None):
                                                        'valid': conf['valid_files'][0],
                                                        'test': conf['test_files'][0]})
 
-        vocab = get_vocab(conf, datasets['train'], rewrite=False)
+        vocab = get_vocab(conf, datasets['train'], rewrite=True)
+        vocab.create_embeddings(ft=None)
 
         # print('grammemes will be sorted in this order:')
         # for grammeme in list(vocab.sorting_order.keys()):
@@ -159,6 +160,7 @@ def multiple(grid=None):
 
         for run_number in range(conf['number_of_runs']):
             best_acc, best_lss = run(run_number)
+            print(f'\n== Results ==')
             print(f'{params}\n{best_acc}, {best_lss}')
             search_results.append((params, best_acc, best_lss))
 
