@@ -42,6 +42,8 @@ class Vocab:
         self.categories_by_freq = {} # dictionary of categories and their number of occurrences
         self.sorting_order = {} # dictionary used to sort grammemes
 
+        self.embeddings = None # word embeddings
+
         self.create_vocab()
 
 
@@ -97,12 +99,28 @@ class Vocab:
         grammemes = [self.conf['PAD'], self.conf['SOS'], self.conf['EOS'], self.conf['UNK']] + sorted(list(grammemes))
 
         counter = Counter([token for sentence in sentences for token in sentence['tokens']])
+        singletons = [token for token, cnt in counter.items() if cnt == 1]
 
         self.grammemes_by_freq = dict(sorted(grammemes_frequencies.items(), key=lambda i: i[1], reverse=True))
         self.categories_by_freq = dict(sorted(categories_frequencies.items(), key=lambda i: i[1], reverse=True))
         self.vocab['word-index'], self.vocab['index-word'] = get_dictionaries(tokens)
         self.vocab['grammeme-index'], self.vocab['index-grammeme'] = get_dictionaries(grammemes)
         self.vocab['char-index'], self.vocab['index-char'] = get_dictionaries(chars)
+        self.vocab['singleton-index'], self.vocab['index-singleton'] = get_dictionaries(singletons)
+
+
+    def create_embeddings(self, ft=None):
+        """Creates embeddings, possibly using fastText. Only used by LSTMEncoder."""
+
+        # these numbers were in original code
+        dimension = self.conf['word_embeddings_dimension']
+        self.embeddings = np.random.normal(scale=2.0 / (dimension + len(self.vocab['word-index'])),
+                                      size=(len(self.vocab['word-index']), dimension))
+
+        if ft is not None:
+            for word in ft.words:
+                if word.lower() in self.vocab['word-index'].keys():
+                    self.embeddings[self.vocab['word-index'][word.lower()]] = ft[word]
 
 
     def get_sorting_order(self):
@@ -162,6 +180,66 @@ class Vocab:
         else:
             raise ValueError(f'Unknown order of grammemes: {self.conf["order"]}')
         self.sorting_order = {g: i for i, g in enumerate(sorting_order)}
+
+
+    def collate_fn(self, batch, train_mode=True):
+        """Collate method.
+
+            Args:
+                batch (dict): Batch returned by dataset
+                train_mode (bool): If True, singletons will be randomly substituted by UNK
+            """
+
+        # dataset returns dict with keys 'id', 'tokens', 'tags'
+        # batch is dict that stores a list for each key
+
+        tokens = [item['tokens'] for item in batch] # list of lists
+        tags = [[tag.split('|') for tag in item['tags']] for item in batch]
+        max_sentence_length = max(map(len, tokens))
+        max_word_length = max([max(map(len, sentence)) for sentence in tokens])
+        max_label_length = 2 + max([max(map(len, item)) for item in tags])
+
+        # pad tokens and chars
+        new_tokens = []
+        new_chars = []
+        for item in tokens:
+            word_indices = []
+            for token in item:
+                if token.isdigit():
+                    word_indices.append(self.vocab['word-index'][self.conf['NUM']])
+                elif train_mode and token in self.vocab['singleton-index'] and np.random.rand() < self.conf['singleton_substitution']:
+                    word_indices.append(self.vocab['word-index'][self.conf['UNK']])
+                else:
+                    word_indices.append(self.vocab['word-index'].get(token, self.vocab['word-index'][self.conf['UNK']]))
+
+            char_indices = []
+            for token in item:
+                indices = [self.vocab['char-index'].get(c, self.vocab['char-index'][self.conf['UNK']]) for c in token]
+                indices.extend([self.vocab['char-index'][self.conf['PAD']]] * (max_word_length - len(indices)))
+                char_indices += [indices]
+
+            word_indices.extend([self.vocab['word-index'][self.conf['PAD']]] * (max_sentence_length - len(item)))
+            char_indices.extend([[self.vocab['char-index'][self.conf['PAD']]] * max_word_length] * (max_sentence_length - len(item)))
+
+            new_tokens.append(word_indices)
+            new_chars.append(char_indices)
+
+        # pad tags
+        new_tags = []
+        for item in tags:
+            tag_indices = []
+            for tag in item:
+                ordered_tag = sorted(tag, key=lambda g: self.sorting_order.get(g, len(self.sorting_order)))
+                indices = [self.vocab['grammeme-index'].get(g, self.vocab['grammeme-index'][self.conf['UNK']]) for g in ordered_tag]
+                indices.insert(0, self.vocab['grammeme-index'][self.conf['SOS']])
+                indices.append(self.vocab['grammeme-index'][self.conf['EOS']])
+                indices.extend([self.vocab['grammeme-index'][self.conf['PAD']]] * (max_label_length - len(indices)))
+                tag_indices += [indices]
+            tag_indices.extend([[self.vocab['grammeme-index'][self.conf['PAD']]] * max_label_length] * (max_sentence_length - len(item)))
+            new_tags.append(tag_indices)
+
+
+        return new_tokens, new_chars, new_tags
 
 
     def length(self, what='grammeme'):

@@ -56,17 +56,17 @@ class Trainer(nn.Module):
         self.train_loader = DataLoader(
             train_subset,
             batch_size=self.conf['sentence_train_batch_size'],
-            collate_fn=lambda item: collate_fn(item, self.vocab.vocab['grammeme-index'], self.vocab.sorting_order),
+            collate_fn=lambda batch: self.vocab.collate_fn(batch, train_mode=True),
             sampler=sampler)
         self.valid_loader = DataLoader(
             valid_subset,
             batch_size=self.conf['sentence_eval_batch_size'],
-            collate_fn=lambda item: collate_fn(item, self.vocab.vocab['grammeme-index'], self.vocab.sorting_order)) if valid_subset else []
+            collate_fn=lambda batch: self.vocab.collate_fn(batch, train_mode=False)) if valid_subset else []
 
         self.xe_loss = nn.CrossEntropyLoss(reduction='mean', ignore_index=0)
         self.nll_loss = nn.NLLLoss(reduction='mean', ignore_index=0)
         self.logsoftmax = nn.LogSoftmax(dim=1)
-        self.optimizer = torch.optim.AdamW(self.parameters(), lr=self.conf['learning_rate'])
+        self.optimizer = torch.optim.SGD(self.parameters(), lr=self.conf['learning_rate'])
 
         self.writer = SummaryWriter(log_dir=f'{self.conf["model_folder"]}/logs/seed_{self.run_number}')
         self.current_epoch = 0
@@ -115,14 +115,16 @@ class Trainer(nn.Module):
         progress_bar = tqdm(enumerate(self.train_loader), total=len(self.train_loader), colour='#bbbb88')
         # current_epoch_tags = [] # stores tags for this epoch
 
-        for iteration, (words_batch, labels_batch) in progress_bar:
-            # words_batch = words_batch.to(self.conf['device'])
-            # labels_batch = labels_batch.to(self.conf['device'])
+        for iteration, (words_batch, chars_batch, labels_batch) in progress_bar:
+            words_batch = torch.tensor(words_batch, dtype=torch.long).to(self.conf['device'])
+            words_batch = words_batch.permute(1, 0)
+            chars_batch = torch.tensor(chars_batch, dtype=torch.long).to(self.conf['device'])
+            chars_batch = chars_batch.view(-1, chars_batch.shape[2]).permute(1, 0)
             labels_batch = torch.tensor(labels_batch, dtype=torch.long).to(self.conf['device'])
             labels_batch = labels_batch.view(-1, labels_batch.shape[2]).permute(1, 0)
 
             self.optimizer.zero_grad()
-            _, probabilities = self.model(words_batch, labels_batch)
+            _, probabilities = self.model(words_batch, chars_batch, labels_batch)
             targets = labels_batch[1:]  # slice is taken to ignore SOS token
             probabilities = probabilities[:len(targets)]
             # probabilities has shape (max_label_length, max_sentence_length * batch_size, grammemes_in_vocab)
@@ -155,14 +157,15 @@ class Trainer(nn.Module):
         running_error = 0.0
         correct, total = 0, 0
 
-        for iteration, (words_batch, labels_batch) in progress_bar:
-            # words_batch = words_batch.to(self.conf['device'])
-            # labels_batch = labels_batch.to(self.conf['device'])
+        for iteration, (words_batch, chars_batch, labels_batch) in progress_bar:
+            words_batch = torch.tensor(words_batch, dtype=torch.long).to(self.conf['device'])
+            words_batch = words_batch.permute(1, 0)
+            chars_batch = torch.tensor(chars_batch, dtype=torch.long).to(self.conf['device'])
+            chars_batch = chars_batch.view(-1, chars_batch.shape[2]).permute(1, 0)
             labels_batch = torch.tensor(labels_batch, dtype=torch.long).to(self.conf['device'])
             labels_batch = labels_batch.view(-1, labels_batch.shape[2]).permute(1, 0)
 
-
-            predictions, probabilities = self.model(words_batch, None)
+            predictions, probabilities = self.model(words_batch, chars_batch, None)
             targets = labels_batch[1:]  # slice is taken to ignore SOS token
             probabilities = probabilities[:len(targets)]
             # probabilities has shape (max_label_length, max_sentence_length * batch_size, grammemes_in_vocab)
@@ -252,49 +255,6 @@ def calculate_accuracy(vocabulary, conf, predictions, targets):
         n_correct += int(equal)
 
     return n_correct, n_total
-
-
-def collate_fn(batch, grammemes_vocab, sorting_order, pad='$PAD$', sos='$SOS$', eos='$EOS$', unk='$UNK$'):
-    """Collate method for BERT-like encoders.
-
-    Args:
-        batch (dict): Batch returned by dataset
-        grammemes_vocab (dict): 'grammeme-index' dict from vocab
-        sorting_order (dict): 'sorting_order' dict from vocab. Used to sort grammemes according to selected order
-        pad (str): padding grammeme
-        sos (str): start of sequence grammeme
-        eos (str): end of sequence grammeme
-        unk (str): unknown grammeme
-    """
-
-    # dataset returns dict with keys 'id', 'tokens', 'tags'
-    # batch is dict that stores a list for each key
-    tokens = [item['tokens'] for item in batch]
-    tags = [[tag.split('|') for tag in item['tags']] for item in batch]
-    max_sentence_length = max(map(len, tokens))
-    max_label_length = 2 + max([max(map(len, item)) for item in tags])
-
-    new_tags = []
-    for item in tags:
-        item_indices = []
-        for tag in item:
-            ordered_tag = sorted(tag, key=lambda g: sorting_order.get(g, len(sorting_order)))
-            indices = [grammemes_vocab.get(g, grammemes_vocab[unk]) for g in ordered_tag]
-            indices.insert(0, grammemes_vocab[sos])
-            indices.append(grammemes_vocab[eos])
-            indices.extend([grammemes_vocab[pad]] * (max_label_length - len(indices)))
-            item_indices += [indices]
-        item_indices.extend([[grammemes_vocab[pad]] * max_label_length] * (max_sentence_length - len(item)))
-        new_tags.append(item_indices)
-
-    # use code below to check
-
-    # for token, item in zip(tokens, new_tags):
-    #     print(token)
-    #     for tag in item:
-    #         print(tag)
-
-    return tokens, new_tags
 
 
 def subset_from_dataset(data, n):
