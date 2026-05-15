@@ -54,4 +54,5 @@ To get metrics for a certain model, you can run
 python code/evaluate.py [language] [order] --seed [seed]
 ```
 
-
+If you want to get metrics for all models in a folder, you can omit `--seed` argument, the script will calculate
+mean and standard deviation for all seeds for this language and order.
