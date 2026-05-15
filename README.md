@@ -40,10 +40,18 @@ hyperparameters. Run the code with this command:
 python code/main.py configs/default.json
 ```
 
+For now, the corpora and orders that you wish to test are specified in the `main.py` file.
+
 ### Models
 
 Trained models with be in `results` folder alongside logs and vocab files
 
 ### Evaluation
 
-Will add later
+To get metrics for a certain model, you can run
+
+```bash
+python code/evaluate.py [language] [order] --seed [seed]
+```
+
+
