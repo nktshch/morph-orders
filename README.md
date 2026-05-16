@@ -1,6 +1,8 @@
 ## Overview
 
-More information will be added later
+This project features morphological tagging model that was first introduced in https://aclanthology.org/K18-1036/ and features LSTM decoder
+that predicts morphological features sequentially. The purpose of this project is to find how the accuracy of prediction is affected by
+the order of prediction. See more in the pdf file.
 
 ## Running code
 
